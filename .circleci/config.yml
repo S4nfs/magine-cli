@@ -1,0 +1,366 @@
+version: 2.1
+
+# Every push runs the checks and the Linux x64 build. A "magine-cli-v<version>" tag (or a manual run with
+# "publish") builds and tests all six targets, then publishes them to npm and crates.io; "all-platforms"
+# builds and tests everything without publishing. Secrets come from the "magine-release" context.
+
+parameters:
+  publish:
+    type: boolean
+    default: false
+    description: Build, test and publish this version to npm and crates.io.
+  all-platforms:
+    type: boolean
+    default: false
+    description: Build and test all six targets without publishing.
+
+executors:
+  linux:
+    docker:
+      - image: cimg/python:3.13-node
+    resource_class: medium
+    environment:
+      CARGO_TERM_COLOR: always
+  node:
+    docker:
+      - image: cimg/node:24.22
+    resource_class: small
+  macos:
+    macos:
+      xcode: '26.6.0'
+    resource_class: m4pro.medium
+    environment:
+      CARGO_TERM_COLOR: always
+      HOMEBREW_NO_AUTO_UPDATE: 1
+  windows:
+    machine:
+      image: windows-server-2022-gui:current
+    resource_class: windows.medium
+    shell: bash.exe -eo pipefail
+    environment:
+      CARGO_TERM_COLOR: always
+
+commands:
+  install-rust:
+    parameters:
+      toolchain:
+        type: string
+        default: stable
+      targets:
+        type: string
+        default: ''
+      components:
+        type: string
+        default: ''
+    steps:
+      - run:
+          name: Install Rust << parameters.toolchain >>
+          command: |
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path --profile minimal --default-toolchain << parameters.toolchain >>
+            echo 'export PATH="$HOME/.cargo/bin:$PATH"' >> "$BASH_ENV"
+      - when:
+          condition: << parameters.targets >>
+          steps:
+            - run: rustup target add << parameters.targets >>
+      - when:
+          condition: << parameters.components >>
+          steps:
+            - run: rustup component add << parameters.components >>
+
+  save-binary:
+    parameters:
+      target:
+        type: string
+      exe:
+        type: string
+        default: magine
+    steps:
+      - run:
+          name: Keep the << parameters.target >> binary for the publish job
+          command: mkdir -p ws/<< parameters.target >> && cp target/<< parameters.target >>/release/<< parameters.exe >> ws/<< parameters.target >>/
+      - persist_to_workspace:
+          root: ws
+          paths:
+            - << parameters.target >>
+
+jobs:
+  check:
+    executor: linux
+    steps:
+      - checkout
+      - install-rust:
+          components: rustfmt clippy
+      - run:
+          name: Cargo.lock and the npm package carry the version in Cargo.toml
+          command: node scripts/sync-version.mjs --check
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets --locked -- -D warnings
+
+  msrv:
+    executor: linux
+    steps:
+      - checkout
+      - install-rust:
+          toolchain: '1.88'
+      - run: cargo check --all-targets --locked
+
+  build-linux:
+    parameters:
+      target:
+        type: enum
+        enum: [x86_64-unknown-linux-musl, aarch64-unknown-linux-musl]
+    executor: linux
+    environment:
+      BIN: target/<< parameters.target >>/release/magine
+    steps:
+      - checkout
+      - install-rust:
+          targets: << parameters.target >>
+      - run:
+          name: Install zig and cargo-zigbuild (static Linux builds)
+          command: |
+            pip install --quiet cargo-zigbuild==0.24.1 ziglang==0.17.1
+            echo "export PATH=\"$(python -c 'import sysconfig; print(sysconfig.get_path("scripts"))'):\$PATH\"" >> "$BASH_ENV"
+      - when:
+          condition:
+            equal: [x86_64-unknown-linux-musl, << parameters.target >>]
+          steps:
+            - run:
+                name: Unit tests
+                command: cargo test --locked
+      - run:
+          name: Build
+          command: cargo zigbuild --release --locked --target << parameters.target >>
+      - when:
+          condition:
+            equal: [x86_64-unknown-linux-musl, << parameters.target >>]
+          steps:
+            - run:
+                name: Black-box tests (the binary against a mock server, TLS, proxies and the installers)
+                command: MAGINE_BIN="$PWD/$BIN" node test/run.mjs
+            - run:
+                name: npm install -g magine, end to end
+                command: MAGINE_BIN="$PWD/$BIN" node scripts/pack-check.mjs
+      - when:
+          condition:
+            equal: [aarch64-unknown-linux-musl, << parameters.target >>]
+          steps:
+            - run:
+                name: Smoke test under QEMU
+                command: |
+                  sudo apt-get update -qq
+                  sudo apt-get install -y -qq qemu-user-static > /dev/null || sudo apt-get install -y -qq qemu-user > /dev/null
+                  qemu=$(command -v qemu-aarch64-static || command -v qemu-aarch64)
+                  test "$("$qemu" "$BIN" --version)" = "$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml)"
+                  "$qemu" "$BIN" guide --json > /dev/null
+                  set +e
+                  MAGINE_CONFIG_DIR="$(mktemp -d)" "$qemu" "$BIN" whoami --json
+                  test $? -eq 4
+      - save-binary:
+          target: << parameters.target >>
+
+  build-windows:
+    parameters:
+      target:
+        type: enum
+        enum: [x86_64-pc-windows-msvc, aarch64-pc-windows-msvc]
+    executor: windows
+    steps:
+      - checkout
+      - when:
+          condition:
+            equal: [aarch64-pc-windows-msvc, << parameters.target >>]
+          steps:
+            - run:
+                name: Add the MSVC Arm64 build tools and clang to Visual Studio (ring needs both for Windows on Arm)
+                shell: powershell.exe -ExecutionPolicy Bypass
+                no_output_timeout: 30m
+                command: |
+                  $ErrorActionPreference = 'Stop'
+                  $installer = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer"
+                  $vswhere = "$installer\vswhere.exe"
+                  $vs = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+                  if (-not $vs) { throw 'This image has no Visual Studio with the C++ x64 build tools' }
+                  $components = 'Microsoft.VisualStudio.Component.VC.Tools.ARM64', 'Microsoft.VisualStudio.Component.VC.Llvm.Clang'
+                  $has = { param($c) @(& $vswhere -products * -requires $c -property installationPath) -contains $vs }
+                  $missing = @($components | Where-Object { -not (& $has $_) })
+                  if ($missing.Count -eq 0) { "Already in ${vs}: $($components -join ', ')"; exit 0 }
+                  "Adding $($missing -join ', ') to $vs"
+                  $arguments = @('modify', '--installPath', "`"$vs`"", '--quiet', '--norestart', '--nocache') + ($missing | ForEach-Object { '--add'; $_ })
+                  Start-Process -FilePath "$installer\vs_installer.exe" -ArgumentList $arguments -Wait
+                  $still = @($components | Where-Object { -not (& $has $_) })
+                  if ($still.Count) { throw "The Visual Studio Installer did not add $($still -join ', ')" }
+      - run:
+          name: Install Rust stable
+          command: |
+            curl -sSfL -o rustup-init.exe https://static.rust-lang.org/rustup/dist/x86_64-pc-windows-msvc/rustup-init.exe
+            RUSTUP_INIT_SKIP_PATH_CHECK=yes ./rustup-init.exe -y --no-modify-path --profile minimal --default-toolchain stable --target << parameters.target >>
+            rm rustup-init.exe
+      - when:
+          condition:
+            equal: [x86_64-pc-windows-msvc, << parameters.target >>]
+          steps:
+            - run:
+                name: Unit tests
+                command: |
+                  export PATH="$(cygpath -u "${CARGO_HOME:-$USERPROFILE/.cargo}")/bin:$PATH"
+                  cargo test --locked
+      - run:
+          name: Build
+          command: |
+            export PATH="$(cygpath -u "${CARGO_HOME:-$USERPROFILE/.cargo}")/bin:$PATH"
+            if [ << parameters.target >> = aarch64-pc-windows-msvc ]; then
+              vs=$("/c/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe" -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Llvm.Clang -property installationPath | tr -d '\r')
+              export PATH="$(cygpath -u "$vs")/VC/Tools/Llvm/x64/bin:$PATH"
+            fi
+            cargo build --release --locked --target << parameters.target >>
+      - when:
+          condition:
+            equal: [x86_64-pc-windows-msvc, << parameters.target >>]
+          steps:
+            - run:
+                name: Black-box tests, and npm install -g magine end to end
+                command: |
+                  bin=$(cygpath -w "$PWD/target/x86_64-pc-windows-msvc/release/magine.exe")
+                  MAGINE_BIN="$bin" node test/run.mjs
+                  MAGINE_BIN="$bin" node scripts/pack-check.mjs
+      - save-binary:
+          target: << parameters.target >>
+          exe: magine.exe
+
+  build-macos:
+    executor: macos
+    steps:
+      - checkout
+      - install-rust:
+          targets: aarch64-apple-darwin x86_64-apple-darwin
+      - run:
+          name: Unit tests
+          command: cargo test --locked
+      - run:
+          name: Build for Apple silicon and Intel
+          command: |
+            cargo build --release --locked --target aarch64-apple-darwin
+            cargo build --release --locked --target x86_64-apple-darwin
+      - run:
+          name: Black-box tests, and npm install -g magine end to end (Apple silicon)
+          command: |
+            export MAGINE_BIN="$PWD/target/aarch64-apple-darwin/release/magine"
+            node test/run.mjs
+            node scripts/pack-check.mjs
+      - run:
+          name: The Intel binary is x86_64 (and runs, if Rosetta 2 is installed)
+          command: |
+            bin=target/x86_64-apple-darwin/release/magine
+            test "$(lipo -archs "$bin")" = x86_64
+            if /usr/bin/arch -x86_64 /usr/bin/true 2> /dev/null; then
+              test "$(/usr/bin/arch -x86_64 "$bin" --version)" = "$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml)"
+            else
+              echo "Rosetta 2 is not installed; not running it"
+            fi
+      - save-binary:
+          target: aarch64-apple-darwin
+      - save-binary:
+          target: x86_64-apple-darwin
+
+  publish-npm:
+    executor: node
+    steps:
+      - checkout
+      - attach_workspace:
+          at: /tmp/bins
+      - run:
+          name: The tag names this version
+          command: |
+            tag="<< pipeline.git.tag >>"
+            version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml)
+            if [ -n "$tag" ] && [ "$tag" != "magine-cli-v$version" ]; then
+              echo "The tag $tag does not match version $version in Cargo.toml" >&2
+              exit 1
+            fi
+      - run:
+          name: Assemble the npm packages
+          command: |
+            args=()
+            for bin in /tmp/bins/*/magine*; do
+              args+=(--bin "$(basename "$(dirname "$bin")")=$bin")
+            done
+            test "${#args[@]}" -eq 12 || { echo "Expected 6 platform binaries, got $(( ${#args[@]} / 2 ))" >&2; exit 1; }
+            node scripts/build-npm.mjs "${args[@]}" --out dist-npm
+      - run:
+          name: Publish to npm (the six platform packages first, then magine)
+          command: |
+            if [ -n "${NPM_TOKEN:-}" ]; then
+              npm config set //registry.npmjs.org/:_authToken "$NPM_TOKEN"
+            else
+              # Trusted publishing: npm trades this OIDC token for a short-lived publish token.
+              NPM_ID_TOKEN=$(circleci run oidc get --claims '{"aud": "npm:registry.npmjs.org"}')
+              export NPM_ID_TOKEN
+            fi
+            npm="npx --yes npm@11"
+            publish() {
+              spec=$(node -p "const p = require('./$1/package.json'); p.name + '@' + p.version")
+              if $npm view "$spec" version > /dev/null 2>&1; then echo "$spec is already on npm"; else $npm publish "./$1" --access public; fi
+            }
+            for dir in dist-npm/cli-*; do publish "$dir"; done
+            publish dist-npm/magine
+
+  publish-crate:
+    executor: linux
+    steps:
+      - checkout
+      - run:
+          name: Skip without a crates.io token
+          command: |
+            if [ -z "${CARGO_REGISTRY_TOKEN:-}" ]; then
+              echo "CARGO_REGISTRY_TOKEN is not in the magine-release context; not publishing to crates.io"
+              circleci-agent step halt
+            fi
+      - install-rust
+      - run:
+          name: Publish to crates.io
+          command: |
+            version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml)
+            if curl -sf -A 'magine-cli release (github.com/S4nfs/magine-cli)' "https://crates.io/api/v1/crates/magine/$version" > /dev/null; then
+              echo "magine $version is already on crates.io"
+            else
+              cargo publish --locked
+            fi
+
+workflows:
+  checks:
+    when: pipeline.git.branch and pipeline.parameters.publish == false and pipeline.parameters.all-platforms == false
+    jobs:
+      - check
+      - msrv
+      - build-linux:
+          target: x86_64-unknown-linux-musl
+
+  release:
+    when: pipeline.parameters.publish or pipeline.parameters.all-platforms or (pipeline.git.tag matches /^magine-cli-v.+/)
+    jobs:
+      - check:
+          filters: &release pipeline.git.branch or (pipeline.git.tag matches /^magine-cli-v.+/)
+      - msrv:
+          filters: *release
+      # The Mac and Windows machines cost the most credits, so they start only once the cheaper jobs pass.
+      - build-linux:
+          matrix:
+            parameters:
+              target: [x86_64-unknown-linux-musl, aarch64-unknown-linux-musl]
+          requires: [check]
+          filters: *release
+      - build-windows:
+          matrix:
+            parameters:
+              target: [x86_64-pc-windows-msvc, aarch64-pc-windows-msvc]
+          requires: [build-linux]
+          filters: *release
+      - build-macos:
+          requires: [build-linux]
+          filters: *release
+      - publish-npm: &publish
+          context: magine-release
+          requires: [msrv, build-linux, build-windows, build-macos]
+          filters: pipeline.parameters.publish or (pipeline.git.tag matches /^magine-cli-v.+/)
+      - publish-crate: *publish

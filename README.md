@@ -383,7 +383,7 @@ node scripts/pack-check.mjs    # npm install -g magine, end to end
 node scripts/screenshots.mjs --out <dir>   # the screenshots in this README (needs Playwright)
 ```
 
-`MAGINE_BIN=<path>` points the tests at another binary. To release, set the version in `Cargo.toml`, run `node scripts/sync-version.mjs` (it copies the version into `Cargo.lock` and the npm package) and push a `magine-cli-v<version>` tag. CI builds and tests all six targets on every push, and publishes a tagged version to npm and crates.io.
+`MAGINE_BIN=<path>` points the tests at another binary. To release, set the version in `Cargo.toml`, run `node scripts/sync-version.mjs` (it copies the version into `Cargo.lock` and the npm package) and push a `magine-cli-v<version>` tag. CircleCI (`.circleci/config.yml`) runs the checks and the Linux tests on every push; a tag builds and tests all six targets and publishes them to npm and crates.io.
 
 ## License
 
