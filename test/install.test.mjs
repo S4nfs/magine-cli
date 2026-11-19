@@ -54,7 +54,8 @@ async function fakeRegistry(tgz, { integrity } = {}) {
   const seen = []
   let base = ''
   const server = createServer((req, res) => {
-    seen.push(req.url)
+    // Newer curl (Git 2.56's) sends %2f as %2F; the registry treats both alike.
+    seen.push(req.url.replace(/%2F/g, '%2f'))
     const manifest = /^\/@zeupiter%2[fF]magine-cli-([a-z0-9]+-[a-z0-9]+)\/([^/]+)$/.exec(req.url)
     if (manifest) {
       const name = `@zeupiter/magine-cli-${manifest[1]}`
