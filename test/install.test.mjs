@@ -44,7 +44,7 @@ const sri = (buf) => `sha512-${createHash('sha512').update(buf).digest('base64')
 
 function platformPackage(platform, binName, binData) {
   return tarGz([
-    { name: 'package/package.json', data: Buffer.from(JSON.stringify({ name: `@magine/cli-${platform}`, version: VERSION })) },
+    { name: 'package/package.json', data: Buffer.from(JSON.stringify({ name: `@zeupiter/magine-cli-${platform}`, version: VERSION })) },
     { name: `package/${binName}`, data: binData, mode: 0o755 },
   ])
 }
@@ -55,9 +55,9 @@ async function fakeRegistry(tgz, { integrity } = {}) {
   let base = ''
   const server = createServer((req, res) => {
     seen.push(req.url)
-    const manifest = /^\/@magine%2[fF]cli-([a-z0-9]+-[a-z0-9]+)\/([^/]+)$/.exec(req.url)
+    const manifest = /^\/@zeupiter%2[fF]magine-cli-([a-z0-9]+-[a-z0-9]+)\/([^/]+)$/.exec(req.url)
     if (manifest) {
-      const name = `@magine/cli-${manifest[1]}`
+      const name = `@zeupiter/magine-cli-${manifest[1]}`
       res.setHeader('content-type', 'application/json')
       // Compact JSON with lookalike fields, as npm sends it.
       res.end(
@@ -66,10 +66,10 @@ async function fakeRegistry(tgz, { integrity } = {}) {
           description: 'The magine binary, for one platform',
           version: VERSION,
           _npmVersion: '10.8.2',
-          dist: { shasum: 'f'.repeat(40), tarball: `${base}/${name}/-/cli-${manifest[1]}-${VERSION}.tgz`, fileCount: 2, integrity: integrity ?? sri(tgz) },
+          dist: { shasum: 'f'.repeat(40), tarball: `${base}/${name}/-/magine-cli-${manifest[1]}-${VERSION}.tgz`, fileCount: 2, integrity: integrity ?? sri(tgz) },
         })
       )
-    } else if (/^\/@magine\/cli-[a-z0-9]+-[a-z0-9]+\/-\/[^/]+\.tgz$/.test(req.url)) {
+    } else if (/^\/@zeupiter\/magine-cli-[a-z0-9]+-[a-z0-9]+\/-\/[^/]+\.tgz$/.test(req.url)) {
       res.setHeader('content-type', 'application/octet-stream')
       res.end(tgz)
     } else {
@@ -151,7 +151,7 @@ test('install.sh installs ~/.magine/bin/magine, checks it and adds it to PATH on
     const env = { HOME: posix(home), SHELL: '/bin/bash', XDG_CONFIG_HOME: posix(join(home, '.config')), MAGINE_NPM_REGISTRY: registry.base }
     const first = await installSh(tmp.dir, env)
     assert.equal(first.code, 0, first.out)
-    assert.deepEqual(registry.seen[0], `/@magine%2fcli-${SH_PLATFORM}/latest`)
+    assert.deepEqual(registry.seen[0], `/@zeupiter%2fmagine-cli-${SH_PLATFORM}/latest`)
     assert.match(first.stdout, new RegExp(`Magine CLI ${VERSION.replace(/\./g, '\\.')} is installed`))
     assert.match(first.stdout, /Next: magine login/)
     assert.match(first.stdout, /Added .* to PATH in: .*\.bashrc/)
@@ -189,7 +189,7 @@ test('install.sh leaves shell files alone with MAGINE_NO_MODIFY_PATH=1', shOpts,
       MAGINE_VERSION: VERSION,
     })
     assert.equal(r.code, 0, r.out)
-    assert.equal(registry.seen[0], `/@magine%2fcli-${SH_PLATFORM}/${VERSION}`)
+    assert.equal(registry.seen[0], `/@zeupiter%2fmagine-cli-${SH_PLATFORM}/${VERSION}`)
     assert.ok(existsSync(join(dir, 'magine')))
     assert.deepEqual(readdirSync(home), [], 'no shell file was created or changed')
     assert.match(r.stdout, /To use it in this terminal, run: export PATH=/)
@@ -246,7 +246,7 @@ test('install.ps1 installs magine.exe, checks it and can update it in place', ps
     const dir = join(tmp.dir, 'Programs', 'magine')
     const first = await installPs1({ MAGINE_NPM_REGISTRY: registry.base, MAGINE_INSTALL_DIR: dir })
     assert.equal(first.code, 0, first.out)
-    assert.match(registry.seen[0], /^\/@magine%2fcli-win32-(x64|arm64)\/latest$/)
+    assert.match(registry.seen[0], /^\/@zeupiter%2fmagine-cli-win32-(x64|arm64)\/latest$/)
     assert.match(first.stdout, new RegExp(`Magine CLI ${VERSION.replace(/\./g, '\\.')} is installed`))
     assert.match(first.stdout, /Next: magine login/)
     assert.doesNotMatch(first.stdout, /Added .* to your user PATH/)

@@ -3,7 +3,7 @@
 #
 #   curl -fsSL https://magine.cloud/install.sh | sh
 #
-# Downloads the native binary (the npm package @magine/cli-<os>-<arch>), checks its
+# Downloads the native binary (the npm package @zeupiter/magine-cli-<os>-<arch>), checks its
 # sha512 against the npm registry, and puts it in ~/.magine/bin. No Node.js needed,
 # nothing runs as root, and it never signs you in by itself.
 #
@@ -95,11 +95,11 @@ main() {
   need curl
   need tar
 
-  pkg="@magine/cli-$os-$arch"
+  pkg="@zeupiter/magine-cli-$os-$arch"
   say "$(paint "$cat_c" '  /\_/\ ')  $(paint "$bold" 'Magine CLI installer')"
   say "$(paint "$cat_c" ' ( o.o )')  Looking up $pkg@$version"
   say "$(paint "$cat_c" '  > ^ < ')"
-  meta="$(fetch "$registry/@magine%2fcli-$os-$arch/$version")" || fail "could not reach $registry (is $pkg@$version published?)"
+  meta="$(fetch "$registry/@zeupiter%2fmagine-cli-$os-$arch/$version")" || fail "could not reach $registry (is $pkg@$version published?)"
   tarball="$(json_field tarball "$meta")"
   integrity="$(json_field integrity "$meta")"
   resolved="$(json_field version "$meta")"

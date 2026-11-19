@@ -1,7 +1,7 @@
 // Assembles the npm packages from built binaries, the way swc and Biome ship native code:
 //   <out>/magine            the "magine" package: a small launcher (bin/magine.js) with one
 //                           optional dependency per platform, so npm downloads only the match
-//   <out>/cli-<platform>    "@magine/cli-<platform>": the native binary for that platform
+//   <out>/cli-<platform>    "@zeupiter/magine-cli-<platform>": the native binary for that platform
 //
 // node scripts/build-npm.mjs [--bin <rust-target>=<path>]... [--out dist-npm]
 // Without --bin it uses target/<rust-target>/release/magine(.exe) for every target that was built.
@@ -25,6 +25,9 @@ export const TARGETS = {
 
 /** One npm package per platform, in the order the launcher lists them. */
 export const PLATFORM_PACKAGES = ['win32-x64', 'win32-arm64', 'darwin-x64', 'darwin-arm64', 'linux-x64', 'linux-arm64']
+
+/** The npm name of a platform's package; the launcher and both install scripts use the same names. */
+export const packageName = (platform) => `@zeupiter/magine-cli-${platform}`
 
 export function cargoVersion() {
   return /^version\s*=\s*"([^"]+)"/m.exec(readFileSync(join(root, 'Cargo.toml'), 'utf8'))[1]
@@ -52,12 +55,12 @@ export function buildNpm({ bins, out }) {
     writeFileSync(join(dir, 'LICENSE'), license)
     writeFileSync(
       join(dir, 'README.md'),
-      `# @magine/cli-${t.pkg}\n\nThe [Magine CLI](https://magine.cloud/docs#cli) binary for ${t.label}.\n\nYou do not install this package yourself: \`npm install -g magine\` picks the right one for your computer.\n`
+      `# ${packageName(t.pkg)}\n\nThe [Magine CLI](https://magine.cloud/docs#cli) binary for ${t.label}.\n\nYou do not install this package yourself: \`npm install -g magine\` picks the right one for your computer.\n`
     )
     writeFileSync(
       join(dir, 'package.json'),
       json({
-        name: `@magine/cli-${t.pkg}`,
+        name: packageName(t.pkg),
         version,
         description: `The Magine CLI binary for ${t.label}. Install "magine" instead.`,
         homepage: 'https://magine.cloud/docs#cli',
@@ -77,7 +80,7 @@ export function buildNpm({ bins, out }) {
   const main = written.main
   mkdirSync(join(main, 'bin'), { recursive: true })
   template.version = version
-  template.optionalDependencies = Object.fromEntries(PLATFORM_PACKAGES.map((p) => [`@magine/cli-${p}`, version]))
+  template.optionalDependencies = Object.fromEntries(PLATFORM_PACKAGES.map((p) => [packageName(p), version]))
   writeFileSync(join(main, 'package.json'), json(template))
   copyFileSync(join(root, 'npm', 'magine', 'bin', 'magine.js'), join(main, 'bin', 'magine.js'))
   chmodSync(join(main, 'bin', 'magine.js'), 0o755)
@@ -111,5 +114,5 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   const { bins, out } = parseArgs(process.argv.slice(2))
   const w = buildNpm({ bins, out })
   console.log(`build-npm: magine@${cargoVersion()} in ${w.main}`)
-  for (const [pkg, dir] of Object.entries(w.platforms)) console.log(`build-npm: @magine/cli-${pkg} in ${dir}`)
+  for (const [pkg, dir] of Object.entries(w.platforms)) console.log(`build-npm: ${packageName(pkg)} in ${dir}`)
 }

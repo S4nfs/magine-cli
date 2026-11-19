@@ -2,7 +2,7 @@
 #
 #   irm https://magine.cloud/install.ps1 | iex
 #
-# Downloads the native binary (the npm package @magine/cli-win32-<arch>), checks its
+# Downloads the native binary (the npm package @zeupiter/magine-cli-win32-<arch>), checks its
 # sha512 against the npm registry, and puts it in %LOCALAPPDATA%\Programs\magine.
 # No Node.js and no administrator rights needed; it never signs you in by itself.
 #
@@ -36,12 +36,12 @@
   if (-not (Get-Command tar.exe -ErrorAction SilentlyContinue)) { Fail 'this installer needs tar.exe (Windows 10 1803 or later). Or use: npm install -g magine' }
   [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 
-  $pkg = "@magine/cli-win32-$arch"
+  $pkg = "@zeupiter/magine-cli-win32-$arch"
   Say '  /\_/\   ' Magenta 'Magine CLI installer' White
   Say ' ( o.o )  ' Magenta "Looking up $pkg@$version"
   Say '  > ^ <' Magenta
   try {
-    $meta = Invoke-RestMethod -UseBasicParsing -Uri "$registry/@magine%2fcli-win32-$arch/$version"
+    $meta = Invoke-RestMethod -UseBasicParsing -Uri "$registry/@zeupiter%2fmagine-cli-win32-$arch/$version"
   } catch {
     Fail "could not reach $registry (is $pkg@$version published?): $($_.Exception.Message)"
   }

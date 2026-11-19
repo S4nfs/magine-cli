@@ -6,12 +6,12 @@ const { spawnSync } = require('child_process')
 const path = require('path')
 
 const PACKAGES = {
-  'win32 x64': '@magine/cli-win32-x64',
-  'win32 arm64': '@magine/cli-win32-arm64',
-  'darwin x64': '@magine/cli-darwin-x64',
-  'darwin arm64': '@magine/cli-darwin-arm64',
-  'linux x64': '@magine/cli-linux-x64',
-  'linux arm64': '@magine/cli-linux-arm64',
+  'win32 x64': '@zeupiter/magine-cli-win32-x64',
+  'win32 arm64': '@zeupiter/magine-cli-win32-arm64',
+  'darwin x64': '@zeupiter/magine-cli-darwin-x64',
+  'darwin arm64': '@zeupiter/magine-cli-darwin-arm64',
+  'linux x64': '@zeupiter/magine-cli-linux-x64',
+  'linux arm64': '@zeupiter/magine-cli-linux-arm64',
 }
 
 function fail(message) {
