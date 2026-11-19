@@ -1,0 +1,41 @@
+[package]
+name = "magine"
+version = "1.7.5"
+edition = "2021"
+rust-version = "1.88"
+description = "The official Magine CLI: run your AI agents, quick tasks, Cattery files, Neurons, wallet and marketplace from any terminal or AI coding agent."
+license = "MIT"
+authors = ["Zeupiter <https://zeupiter.com>"]
+homepage = "https://magine.cloud/docs#cli"
+repository = "https://github.com/S4nfs/magine-cli"
+readme = "README.md"
+keywords = ["magine", "ai-agents", "cli", "automation", "browser-agents"]
+categories = ["command-line-utilities"]
+include = ["src/**/*.rs", "Cargo.toml", "Cargo.lock", "README.md", "LICENSE"]
+
+[[bin]]
+name = "magine"
+path = "src/main.rs"
+
+[dependencies]
+ureq = { version = "2.12", default-features = false, features = ["tls"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+rustls-pki-types = { version = "1.9", features = ["std"] }
+rustls-native-certs = "0.8"
+webpki-roots = "1"
+url = "2.5"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+ctrlc = "3.4"
+iana-time-zone = "0.1"
+crossterm = { version = "0.29", default-features = false, features = ["bracketed-paste", "events", "windows"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"

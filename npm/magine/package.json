@@ -1,0 +1,43 @@
+{
+  "name": "magine",
+  "version": "1.7.5",
+  "description": "The official Magine CLI: run your AI agents, quick tasks, Cattery files, Neurons, wallet and marketplace from any terminal or AI coding agent. A native binary; nothing else to install.",
+  "keywords": [
+    "magine",
+    "ai-agents",
+    "browser-agents",
+    "automation",
+    "cli",
+    "claude-code",
+    "codex",
+    "gemini-cli",
+    "cursor",
+    "agent"
+  ],
+  "homepage": "https://magine.cloud/docs#cli",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/S4nfs/magine-cli.git"
+  },
+  "bugs": {
+    "url": "https://github.com/S4nfs/magine-cli/issues"
+  },
+  "license": "MIT",
+  "author": "Zeupiter (https://zeupiter.com)",
+  "bin": {
+    "magine": "bin/magine.js"
+  },
+  "files": [
+    "bin",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=14"
+  },
+  "optionalDependencies": {},
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/",
+    "access": "public"
+  }
+}

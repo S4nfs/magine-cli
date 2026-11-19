@@ -1,0 +1,163 @@
+name: Magine CLI
+
+# Builds the native binaries (Windows, macOS and Linux, x64 and Arm64), tests them, and publishes
+# them to npm (and crates.io) from a "magine-cli-v<version>" tag or a manual run with "publish" on.
+on:
+  push:
+    branches: ['**']
+    tags: ['magine-cli-v*']
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish this version to npm (and to crates.io when the CARGO_REGISTRY_TOKEN secret is set)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  check:
+    name: Format, lint and version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Cargo.lock and the npm package carry the version in Cargo.toml
+        run: node scripts/sync-version.mjs --check
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets --locked -- -D warnings
+
+  msrv:
+    name: Rust 1.88 (rust-version)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.88
+      - run: cargo check --all-targets --locked
+
+  build:
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: x86_64-pc-windows-msvc, os: windows-latest, run: native }
+          - { target: aarch64-pc-windows-msvc, os: windows-latest, run: none }
+          - { target: aarch64-apple-darwin, os: macos-latest, run: native }
+          - { target: x86_64-apple-darwin, os: macos-latest, run: none }
+          - { target: x86_64-unknown-linux-musl, os: ubuntu-latest, run: native, zig: true }
+          - { target: aarch64-unknown-linux-musl, os: ubuntu-latest, run: qemu, zig: true }
+    env:
+      BIN: target/${{ matrix.target }}/release/magine${{ contains(matrix.target, 'windows') && '.exe' || '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-python@v5
+        if: matrix.zig
+        with:
+          python-version: '3.12'
+      - name: Install zig and cargo-zigbuild (static Linux builds)
+        if: matrix.zig
+        run: pip install cargo-zigbuild==0.24.1 ziglang==0.17.1
+      - name: Put clang on PATH (ring needs it for Windows on Arm)
+        if: matrix.target == 'aarch64-pc-windows-msvc'
+        run: echo 'C:\Program Files\LLVM\bin' >> "$GITHUB_PATH"
+      - name: Unit tests
+        if: matrix.run == 'native'
+        run: cargo test --locked
+      - name: Build
+        run: cargo ${{ matrix.zig && 'zigbuild' || 'build' }} --release --locked --target ${{ matrix.target }}
+      - name: Black-box tests (the binary against a mock server, TLS, proxies and the installers)
+        if: matrix.run == 'native'
+        run: node test/run.mjs
+        env:
+          MAGINE_BIN: ${{ github.workspace }}/${{ env.BIN }}
+      - name: npm install -g magine, end to end
+        if: matrix.run == 'native'
+        run: node scripts/pack-check.mjs
+        env:
+          MAGINE_BIN: ${{ github.workspace }}/${{ env.BIN }}
+      - name: Smoke test under QEMU
+        if: matrix.run == 'qemu'
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq qemu-user-static
+          test "$(qemu-aarch64-static "$BIN" --version)" = "$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml)"
+          qemu-aarch64-static "$BIN" guide --json > /dev/null
+          set +e
+          MAGINE_CONFIG_DIR="$RUNNER_TEMP/magine" qemu-aarch64-static "$BIN" whoami --json
+          test $? -eq 4
+      - uses: actions/upload-artifact@v4
+        with:
+          name: magine-${{ matrix.target }}
+          path: ${{ env.BIN }}
+          if-no-files-found: error
+
+  publish:
+    name: Publish
+    needs: [check, msrv, build]
+    if: startsWith(github.ref, 'refs/tags/magine-cli-v') || (github.event_name == 'workflow_dispatch' && inputs.publish)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # npm provenance
+    env:
+      NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+      # npm signs provenance only for public source repositories.
+      PROVENANCE: ${{ !github.event.repository.private && '--provenance' || '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: magine-*
+          path: artifacts
+      - name: The tag names this version
+        if: startsWith(github.ref, 'refs/tags/')
+        run: test "$GITHUB_REF_NAME" = "magine-cli-v$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml)"
+      - name: Assemble the npm packages
+        run: |
+          args=()
+          for dir in artifacts/magine-*; do
+            args+=(--bin "${dir#artifacts/magine-}=$(ls "$dir"/magine*)")
+          done
+          node scripts/build-npm.mjs "${args[@]}" --out dist-npm
+      - name: Publish to npm (the six platform packages first, then magine)
+        run: |
+          publish() {
+            spec=$(node -p "const p = require('./$1/package.json'); p.name + '@' + p.version")
+            if npm view "$spec" version > /dev/null 2>&1; then echo "$spec is already on npm"; else npm publish "./$1" --access public $PROVENANCE; fi
+          }
+          for dir in dist-npm/cli-*; do publish "$dir"; done
+          publish dist-npm/magine
+      - uses: dtolnay/rust-toolchain@stable
+        if: env.CARGO_REGISTRY_TOKEN != ''
+      - name: Publish to crates.io
+        if: env.CARGO_REGISTRY_TOKEN != ''
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml)
+          if curl -sf -A 'magine-cli release (github.com/S4nfs/magine-cli)' "https://crates.io/api/v1/crates/magine/$version" > /dev/null; then echo "magine $version is already on crates.io"; else cargo publish --locked; fi

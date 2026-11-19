@@ -1,0 +1,13 @@
+{
+  "name": "magine-cli-dev",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Tests and packaging scripts for the Magine CLI (a Rust crate). The published npm package is built into dist-npm/ by scripts/build-npm.mjs.",
+  "type": "module",
+  "scripts": {
+    "test": "node test/run.mjs",
+    "pack-check": "node scripts/pack-check.mjs",
+    "build-npm": "node scripts/build-npm.mjs",
+    "sync-version": "node scripts/sync-version.mjs"
+  }
+}
