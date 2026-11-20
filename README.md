@@ -10,10 +10,11 @@ Catbots, quick tasks, Cattery files, Neurons, wallet and marketplace, in one nat
 < 2 MB, starts in milliseconds, nothing else to install.
 
 [![npm](https://img.shields.io/npm/v/magine?style=flat-square&logo=npm&label=npm&color=cb3837)](https://www.npmjs.com/package/magine)
+![NPM Downloads](https://img.shields.io/npm/dw/magine)
 [![crates.io](https://img.shields.io/crates/v/magine?style=flat-square&logo=rust&label=crates.io&color=dea584)](https://crates.io/crates/magine)
 [![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20macOS%20%7C%20Linux-58a6ff?style=flat-square)](#install)
 [![Built with Rust](https://img.shields.io/badge/built%20with-Rust-a371f7?style=flat-square&logo=rust)](#build-from-source)
-[![License: MIT](https://img.shields.io/badge/license-MIT-3fb950?style=flat-square)](#license)
+[![License: MIT](https://img.shields.io/badge/license-MIT-3fb950?style=flat-square&color=rgb(49%2C%2065%2C%2088))](#license)
 
 [Set up with your AI agent](#set-up-with-your-ai-agent) &middot; [Install](#install) &middot; [Quick start](#quick-start) &middot; [Tags](#tag-agents-and-files) &middot; [What it drives](#what-the-cli-drives) &middot; [Paws](#paws-an-agent-in-your-own-browser) &middot; [Commands](#commands) &middot; [Docs](https://magine.cloud/docs#cli)
 
